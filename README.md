@@ -1,186 +1,213 @@
-<p align="center">
-<img width="400" src="/assets/logo.png">
-</p>
+# Learning Inference!!!
 
-# Mini-SGLang
+This is a personal learning repo forked from
+[sgl-project/mini-sglang](https://github.com/sgl-project/mini-sglang).
+It keeps the core Mini-SGLang implementation and adds a small Lambda Cloud
+deployment workflow for serving Qwen.
 
-A **lightweight yet high-performance** inference framework for Large Language Models.
+This is not an official SGLang project. The goal is to understand the moving
+parts of an LLM inference server while keeping the repository small enough to
+read, modify, and deploy.
 
----
+## What Is Included
 
-Mini-SGLang is a compact implementation of [SGLang](https://github.com/sgl-project/sglang), designed to demystify the complexities of modern LLM serving systems. With a compact codebase of **~5,000 lines of Python**, it serves as both a capable inference engine and a transparent reference for researchers and developers.
+- Core Mini-SGLang source under `python/minisgl/`
+- Upstream-style tests and benchmarks under `tests/` and `benchmark/`
+- A Dockerfile for GPU serving
+- Lambda Cloud deployment assets under `deploy/lambda/`
+- Local deployment, tunnel, watchdog, chat UI, and smoke-test scripts under
+  `scripts/`
 
-## ✨ Key Features
+Local notes, retrospectives, generated archives, runtime logs, private
+environment files, virtual environments, and cache directories are intentionally
+ignored by Git.
 
-- **High Performance**: Achieves state-of-the-art throughput and latency with advanced optimizations.
-- **Lightweight & Readable**: A clean, modular, and fully type-annotated codebase that is easy to understand and modify.
-- **Advanced Optimizations**:
-  - **Radix Cache**: Reuses KV cache for shared prefixes across requests.
-  - **Chunked Prefill**: Reduces peak memory usage for long-context serving.
-  - **Overlap Scheduling**: Hides CPU scheduling overhead with GPU computation.
-  - **Tensor Parallelism**: Scales inference across multiple GPUs.
-  - **Optimized Kernels**: Integrates **FlashAttention** and **FlashInfer** for maximum efficiency.
-  - ...
+## Security Model
 
-## 🚀 Quick Start
+If you wanna for you'll need:
 
-> **⚠️ Platform Support**: Mini-SGLang currently supports **Linux only** (x86_64 and aarch64). Windows and macOS are not supported due to dependencies on Linux-specific CUDA kernels (`sgl-kernel`, `flashinfer`). We recommend using [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) on Windows or Docker for cross-platform compatibility.
+- `LAMBDA_CLOUD_API_KEY`
+- `HF_TOKEN`
+- `MINISGL_API_KEY`
+- `SSH_PRIVATE_KEY_PATH`
+- `LAMBDA_PUBLIC_IP` after an instance is launched
 
-### 1. Environment Setup
+The Lambda deployment binds Mini-SGLang to localhost on the remote VM and uses
+an SSH tunnel for access from your machine. Public inference ports are not
+required. Deployed API routes require `Authorization: Bearer $MINISGL_API_KEY`.
 
-We recommend using `uv` for a fast and reliable installation (note that `uv` does not conflict with `conda`).
+## Requirements
+
+For local development:
+
+- Linux with an NVIDIA GPU and compatible CUDA driver
+- Python 3.10+
+- `uv` or another Python environment manager
+
+For Lambda serving:
+
+- Lambda Cloud API key
+- SSH public key uploaded to Lambda Cloud
+- Hugging Face token with access to the model you want to run
+- Docker and NVIDIA runtime support on the Lambda VM
+
+The default main model is `Qwen/Qwen3-8B` but more support will be added as I learn more about inference :)
+
+## Local Install
 
 ```bash
-# Create a virtual environment (Python 3.10+ recommended)
+git clone <your-fork-url>
+cd mini-sglang
+
 uv venv --python=3.12
 source .venv/bin/activate
-```
-
-**Prerequisites**: Mini-SGLang relies on CUDA kernels that are JIT-compiled. Ensure you have the **NVIDIA CUDA Toolkit** installed and that its version matches your driver's version. You can check your driver's CUDA capability with `nvidia-smi`.
-
-### 2. Installation
-
-Install Mini-SGLang directly from the source:
-
-```bash
-git clone https://github.com/sgl-project/mini-sglang.git
-cd mini-sglang && uv venv --python=3.12 && source .venv/bin/activate
 uv pip install -e .
 ```
 
-<details>
-<summary><b>💡 Installing on Windows (WSL2)</b></summary>
-
-Since Mini-SGLang requires Linux-specific dependencies, Windows users should use WSL2:
-
-1. **Install WSL2** (if not already installed):
-   ```powershell
-   # In PowerShell (as Administrator)
-   wsl --install
-   ```
-
-2. **Install CUDA on WSL2**:
-   - Follow [NVIDIA's WSL2 CUDA guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html)
-   - Ensure your Windows GPU drivers support WSL2
-
-3. **Install Mini-SGLang in WSL2**:
-   ```bash
-   # Inside WSL2 terminal
-   git clone https://github.com/sgl-project/mini-sglang.git
-   cd mini-sglang && uv venv --python=3.12 && source .venv/bin/activate
-   uv pip install -e .
-   ```
-
-4. **Access from Windows**: The server will be accessible at `http://localhost:8000` from Windows browsers and applications.
-
-</details>
-
-<details>
-<summary><b>🐳 Running with Docker</b></summary>
-
-**Prerequisites**:
-- [Docker](https://docs.docker.com/get-docker/)
-- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-
-1. **Build the Docker image**:
-   ```bash
-   docker build -t minisgl .
-   ```
-
-2. **Run the server**:
-   ```bash
-   docker run --gpus all -p 1919:1919 \
-       minisgl --model Qwen/Qwen3-0.6B --host 0.0.0.0
-   ```
-
-3. **Run in interactive shell mode**:
-   ```bash
-   docker run -it --gpus all \
-       minisgl --model Qwen/Qwen3-0.6B --shell
-   ```
-
-4. **Using Docker Volumes for persistent caches** (recommended for faster subsequent startups):
-   ```bash
-   docker run --gpus all -p 1919:1919 \
-       -v huggingface_cache:/app/.cache/huggingface \
-       -v tvm_cache:/app/.cache/tvm-ffi \
-       -v flashinfer_cache:/app/.cache/flashinfer \
-       minisgl --model Qwen/Qwen3-0.6B --host 0.0.0.0
-   ```
-
-</details>
-
-### 3. Online Serving
-
-Launch an OpenAI-compatible API server with a single command.
+Run a small local server:
 
 ```bash
-# Deploy Qwen/Qwen3-0.6B on a single GPU
-python -m minisgl --model "Qwen/Qwen3-0.6B"
+export HF_TOKEN=<your-hugging-face-token>
+export MINISGL_API_KEY=<long-random-api-key>
+export MINISGL_REQUIRE_API_KEY=1
 
-# Deploy meta-llama/Llama-3.1-70B-Instruct on 4 GPUs with Tensor Parallelism, on port 30000
-python -m minisgl --model "meta-llama/Llama-3.1-70B-Instruct" --tp 4 --port 30000
+python -m minisgl \
+  --model Qwen/Qwen3-0.6B \
+  --host 127.0.0.1 \
+  --port 1919
 ```
 
-Once the server is running, you can send requests using standard tools like `curl` or any OpenAI-compatible client.
-
-### 4. Interactive Shell
-
-Chat with your model directly in the terminal by adding the `--shell` flag.
+Call it with an OpenAI-compatible request:
 
 ```bash
-python -m minisgl --model "Qwen/Qwen3-0.6B" --shell
+curl http://127.0.0.1:1919/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${MINISGL_API_KEY}" \
+  -d '{
+    "model": "Qwen/Qwen3-0.6B",
+    "messages": [{"role": "user", "content": "Explain KV cache reuse in one paragraph."}],
+    "max_tokens": 128
+  }'
 ```
 
-![shell-example](https://lmsys.org/images/blog/minisgl/shell.png)
+## Lambda Deployment
 
-You can also use `/reset` to clear the chat history.
+Create a root `.env` file. It is ignored by Git.
 
-## Benchmark
+```dotenv
+LAMBDA_CLOUD_API_KEY=<your-lambda-api-key>
+LAMBDA_REGION=us-east-1
+LAMBDA_INSTANCE_TYPE=gpu_1x_h100_sxm5
+LAMBDA_INSTANCE_FALLBACK=gpu_1x_a100_sxm4,gpu_1x_a100
 
-### Offline inference
+SSH_PRIVATE_KEY_PATH=/path/to/your/lambda/private/key
 
-See [bench.py](./benchmark/offline/bench.py) for more details. Set `MINISGL_DISABLE_OVERLAP_SCHEDULING=1` for ablation study on overlap scheduling.
+MINISGL_MODEL=Qwen/Qwen3-8B
+MINISGL_SMOKE_MODEL=Qwen/Qwen3-0.6B
+MINISGL_PORT=1919
+MINISGL_API_KEY=<long-random-api-key>
+MINISGL_REQUIRE_API_KEY=1
 
-Test Configuration:
+HF_TOKEN=<your-hugging-face-token>
+MINISGL_IDLE_TIMEOUT_S=3600
+```
 
-- Hardware: 1xH200 GPU.
-- Model: Qwen3-0.6B, Qwen3-14B
-- Total Requests: 256 sequences
-- Input Length: Randomly sampled between 100-1024 tokens
-- Output Length: Randomly sampled between 100-1024 tokens
-
-![offline](https://lmsys.org/images/blog/minisgl/offline.png)
-
-### Online inference
-
-See [benchmark_qwen.py](./benchmark/online/bench_qwen.py) for more details.
-
-Test Configuration:
-
-- Hardware: 4xH200 GPU, connected by NVLink.
-- Model: Qwen3-32B
-- Dataset: [Qwen trace](https://github.com/alibaba-edu/qwen-bailian-usagetraces-anon/blob/main/qwen_traceA_blksz_16.jsonl), replaying first 1000 requests.
-
-Launch command:
+Make the shell scripts executable:
 
 ```bash
-# Mini-SGLang
-python -m minisgl --model "Qwen/Qwen3-32B" --tp 4 --cache naive
-
-# SGLang
-python3 -m sglang.launch_server --model "Qwen/Qwen3-32B" --tp 4 \
-    --disable-radix --port 1919 --decode-attention flashinfer
+chmod +x scripts/*.sh
 ```
 
-> **Note**: If you encounter network issues when downloading models from HuggingFace, try using `--model-source modelscope` to download from ModelScope instead:
-> ```bash
-> python -m minisgl --model "Qwen/Qwen3-32B" --tp 4 --model-source modelscope
-> ```
+Deploy the smoke model first:
 
-![online](https://lmsys.org/images/blog/minisgl/online.png)
+```bash
+./scripts/lambda_turn_on.sh --smoke --no-browser
+```
 
-## 📚 Learn More
+When the smoke model works, redeploy or reuse the instance for the main Qwen
+model:
 
-- **[Detailed Features](./docs/features.md)**: Explore all available features and command-line arguments.
-- **[System Architecture](./docs/structures.md)**: Dive deep into the design and data flow of Mini-SGLang.
+```bash
+./scripts/lambda_turn_on.sh --reuse --no-browser
+```
+
+The turn-on script:
+
+- provisions or reuses a Lambda GPU instance
+- packages this repo without secrets
+- copies and deploys the package on the VM
+- starts Docker Compose on the VM
+- opens a local SSH tunnel to `127.0.0.1:1919`
+- starts an idle watchdog
+- serves the local chat UI at `http://127.0.0.1:8765/`
+
+Run a request through the tunnel:
+
+```bash
+python scripts/minisgl_remote_infer.py \
+  "Explain the difference between prefill and decode in LLM serving."
+```
+
+Turn everything off when finished:
+
+```bash
+python scripts/lambda_turn_off.py
+```
+
+Use `--keep-instance` if you want to stop the server but leave the Lambda VM
+running.
+
+## Manual Package Path
+
+You can build the deployment tarball without launching a Lambda instance:
+
+```bash
+./scripts/package_lambda.sh
+```
+
+The archive is written to `dist/`, which is ignored. It contains source,
+deployment assets, and scripts, but excludes local `.env` files and Python
+caches.
+
+On a manually created Lambda VM:
+
+```bash
+mkdir -p ~/minisgl
+tar -xzf minisgl-lambda-*.tar.gz -C ~/minisgl
+cd ~/minisgl/deploy/lambda
+cp .env.example .env
+# Fill MINISGL_API_KEY and HF_TOKEN in .env.
+docker compose up -d --build
+```
+
+From your local machine:
+
+```bash
+ssh -N -L 1919:127.0.0.1:1919 ubuntu@<lambda-public-ip>
+python scripts/minisgl_remote_infer.py "Say hello from Qwen."
+```
+
+## Useful Commands
+
+```bash
+# Check what would go into a package.
+./scripts/package_lambda.sh --dry-run
+
+# Start only the SSH tunnel when the VM is already running.
+./scripts/lambda_tunnel.sh
+
+# Run a health/smoke check through the local tunnel.
+python scripts/minisgl_smoke_check.py
+
+# Serve the local chat UI without provisioning.
+python scripts/serve_lambda_chat.py
+```
+
+## Before Pushing
+
+Run these checks before publishing:
+
+```bash
+git status --short --ignored
+git add -n .
+```

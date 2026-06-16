@@ -86,6 +86,7 @@ def parse_args(args: List[str], run_shell: bool = False) -> Tuple[ServerArgs, bo
     parser.add_argument(
         "--tensor-parallel-size",
         "--tp-size",
+        "--tp",
         type=int,
         default=1,
         help="The tensor parallelism size.",
@@ -219,6 +220,7 @@ def parse_args(args: List[str], run_shell: bool = False) -> Tuple[ServerArgs, bo
 
     parser.add_argument(
         "--shell-mode",
+        "--shell",
         action="store_true",
         help="Run the server in shell mode.",
     )

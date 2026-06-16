@@ -1,0 +1,44 @@
+services:
+  minisgl:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: minisgl-lambda:latest
+    env_file:
+      - .env
+    environment:
+      MINISGL_REQUIRE_API_KEY: "1"
+      HF_HOME: /app/.cache/huggingface
+      TVM_FFI_CACHE_DIR: /app/.cache/tvm-ffi
+      FLASHINFER_WORKSPACE_BASE: /app/.cache/flashinfer
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+      - tvm_cache:/app/.cache/tvm-ffi
+      - flashinfer_cache:/app/.cache/flashinfer
+    # Bind on all interfaces inside the container; publish only on VM localhost.
+    command:
+      - --model
+      - ${MINISGL_MODEL:-Qwen/Qwen3-8B}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "${MINISGL_PORT:-1919}"
+      - --dtype
+      - ${MINISGL_DTYPE:-auto}
+      - --cache-type
+      - radix
+    ports:
+      - "127.0.0.1:${MINISGL_PORT:-1919}:${MINISGL_PORT:-1919}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+  tvm_cache:
+  flashinfer_cache:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -26,7 +28,9 @@ from prompt_toolkit.completion import WordCompleter
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
+from .activity import activity_snapshot, touch_activity
 from .args import ServerArgs
+from .auth import BearerAuthMiddleware, load_auth_settings, validate_auth_at_startup
 
 logger = init_logger(__name__, "FrontendAPI")
 
@@ -225,8 +229,31 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="MiniSGL API Server", version="0.0.1", lifespan=lifespan)
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/status")
+async def status():
+    return activity_snapshot()
+
+
+@app.post("/admin/shutdown")
+async def admin_shutdown():
+    """Gracefully stop the API server (requires API key when auth is enabled)."""
+
+    async def _shutdown() -> None:
+        await asyncio.sleep(0.25)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_shutdown())
+    return {"status": "shutting_down"}
+
+
 @app.post("/generate")
 async def generate(req: GenerateRequest, request: Request):
+    touch_activity()
     logger.debug("Received generate request %s", req)
     state = get_global_state()
     uid = state.new_user()
@@ -254,6 +281,7 @@ async def v1_root():
 
 @app.post("/v1/chat/completions")
 async def v1_completions(req: OpenAICompletionRequest, request: Request):
+    touch_activity()
     state = get_global_state()
     if req.messages:
         prompt = [msg.model_dump() for msg in req.messages]
@@ -424,8 +452,18 @@ def run_api_server(config: ServerArgs, start_backend: Callable[[], None], run_sh
     if run_shell:
         assert not config.use_dummy_weight, "Shell mode does not support dummy weights."
 
+    validate_auth_at_startup(run_shell=run_shell)
+
     host = config.server_host
     port = config.server_port
+
+    api_key, auth_disabled, _ = load_auth_settings()
+    if not run_shell:
+        app.add_middleware(
+            BearerAuthMiddleware,
+            api_key=api_key,
+            auth_disabled=auth_disabled,
+        )
 
     assert _GLOBAL_STATE is None, "Global state is already initialized"
     _GLOBAL_STATE = FrontendManager(

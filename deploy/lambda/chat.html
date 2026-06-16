@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini-SGLang Lambda Chat Test</title>
+  <!--
+    Usage (recommended — avoids browser CORS):
+
+      1. Deploy Mini-SGLang on Lambda and open the SSH tunnel:
+           ./scripts/lambda_tunnel.sh
+      2. Serve this page with the local proxy:
+           python scripts/serve_lambda_chat.py
+      3. Open http://127.0.0.1:8765/ — API key loads from root `.env` automatically
+
+    Direct API URL (http://127.0.0.1:1919/v1) works from curl/scripts but browsers block
+    cross-origin requests unless you use serve_lambda_chat.py above.
+
+    Query params (optional): ?base_url=...&api_key=...&model=...&stream=1
+  -->
+  <!-- minisgl-chat-config -->
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --ink: #17212c;
+      --muted: #5c6875;
+      --line: #d7e0e8;
+      --blue: #2563eb;
+      --green: #0f8a5f;
+      --red: #c24136;
+      --radius: 8px;
+      --shadow: 0 8px 24px rgba(31, 45, 61, 0.08);
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    .page {
+      display: flex;
+      flex-direction: column;
+      max-width: 860px;
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+
+    header {
+      margin-bottom: 1rem;
+    }
+
+    header h1 {
+      font-size: 1.35rem;
+      font-weight: 650;
+      margin: 0 0 0.25rem;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 1rem;
+      padding: 1rem;
+    }
+
+    .settings summary {
+      cursor: pointer;
+      font-weight: 600;
+      user-select: none;
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      margin-top: 0.85rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      font-size: 0.82rem;
+      font-weight: 600;
+      gap: 0.35rem;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="number"] {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      padding: 0.45rem 0.55rem;
+    }
+
+    .checkbox-row {
+      align-items: center;
+      flex-direction: row;
+      font-weight: 500;
+      gap: 0.45rem;
+    }
+
+    .chat-log {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 360px;
+      overflow: hidden;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    .message {
+      margin-bottom: 0.85rem;
+      max-width: 92%;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.user {
+      background: #e8f0fe;
+      border-radius: 12px 12px 4px 12px;
+      margin-left: auto;
+      padding: 0.65rem 0.85rem;
+    }
+
+    .message.assistant {
+      background: #f1f5f9;
+      border-radius: 12px 12px 12px 4px;
+      padding: 0.65rem 0.85rem;
+    }
+
+    .message.system {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0 auto 0.85rem;
+      max-width: 100%;
+      text-align: center;
+    }
+
+    .message.error {
+      background: #fdecea;
+      border: 1px solid #f5c2c0;
+      border-radius: var(--radius);
+      color: var(--red);
+      max-width: 100%;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 0.6rem;
+      padding: 0.85rem;
+    }
+
+    .composer textarea {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      flex: 1;
+      font: inherit;
+      min-height: 72px;
+      padding: 0.6rem 0.75rem;
+      resize: vertical;
+    }
+
+    button {
+      background: var(--blue);
+      border: none;
+      border-radius: var(--radius);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 600;
+      padding: 0.55rem 0.95rem;
+    }
+
+    button:hover { filter: brightness(1.05); }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+    button.secondary {
+      background: #e9eef4;
+      color: var(--ink);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+
+    .status.ok { color: var(--green); }
+    .status.err { color: var(--red); }
+
+    .server-bar {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .server-indicator {
+      align-items: center;
+      display: flex;
+      font-size: 0.92rem;
+      font-weight: 600;
+      gap: 0.45rem;
+    }
+
+    .dot {
+      border-radius: 50%;
+      height: 0.65rem;
+      width: 0.65rem;
+    }
+
+    .dot.on { background: var(--green); }
+    .dot.off { background: var(--red); }
+    .dot.pending { background: #d97706; }
+
+    .server-meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+
+    .server-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    button.danger {
+      background: var(--red);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Mini-SGLang Lambda Chat Test</h1>
+      <p>OpenAI-compatible chat against your tunneled Lambda deployment.</p>
+    </header>
+
+    <section class="panel server-bar" id="serverBar">
+      <div>
+        <div class="server-indicator">
+          <span class="dot off" id="serverDot"></span>
+          <span id="serverLabel">Server off</span>
+        </div>
+        <div class="server-meta" id="serverMeta">Checking status…</div>
+      </div>
+      <div class="server-actions">
+        <button type="button" class="secondary" id="turnOnBtn">Turn on</button>
+        <button type="button" class="danger" id="turnOffBtn">Turn off</button>
+      </div>
+    </section>
+
+    <details class="panel settings" open>
+      <summary>Connection settings</summary>
+      <div class="settings-grid">
+        <label>
+          Base URL
+          <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8765/v1">
+        </label>
+        <label id="apiKeyRow">
+          API key
+          <input id="apiKey" type="password" placeholder="MINISGL_API_KEY" autocomplete="off">
+        </label>
+        <label>
+          Model
+          <input id="model" type="text" placeholder="Qwen/Qwen3-8B">
+        </label>
+        <label>
+          Max tokens
+          <input id="maxTokens" type="number" min="1" max="8192" value="256">
+        </label>
+        <label>
+          Temperature
+          <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7">
+        </label>
+        <label class="checkbox-row">
+          <input id="stream" type="checkbox" checked>
+          Stream responses
+        </label>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="secondary" id="healthBtn">Check health</button>
+        <button type="button" class="secondary" id="modelsBtn">List models</button>
+        <button type="button" class="secondary" id="clearBtn">Clear chat</button>
+      </div>
+      <div class="status" id="status"></div>
+    </details>
+
+    <section class="chat-log">
+      <div class="messages" id="messages"></div>
+      <form class="composer" id="composer">
+        <textarea id="prompt" placeholder="Type a message…" required></textarea>
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+    </section>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "minisgl-chat-settings-v2";
+
+    const els = {
+      baseUrl: document.getElementById("baseUrl"),
+      apiKey: document.getElementById("apiKey"),
+      model: document.getElementById("model"),
+      maxTokens: document.getElementById("maxTokens"),
+      temperature: document.getElementById("temperature"),
+      stream: document.getElementById("stream"),
+      messages: document.getElementById("messages"),
+      prompt: document.getElementById("prompt"),
+      composer: document.getElementById("composer"),
+      sendBtn: document.getElementById("sendBtn"),
+      status: document.getElementById("status"),
+      healthBtn: document.getElementById("healthBtn"),
+      modelsBtn: document.getElementById("modelsBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      serverDot: document.getElementById("serverDot"),
+      serverLabel: document.getElementById("serverLabel"),
+      serverMeta: document.getElementById("serverMeta"),
+      turnOnBtn: document.getElementById("turnOnBtn"),
+      turnOffBtn: document.getElementById("turnOffBtn"),
+    };
+
+    /** @type {{role: string, content: string}[]} */
+    let history = [];
+
+    function defaultBaseUrl() {
+      if (window.location.protocol.startsWith("http")) {
+        return `${window.location.origin}/v1`;
+      }
+      return "http://127.0.0.1:1919/v1";
+    }
+
+    const injected = window.__MINISGL_CHAT_CONFIG__ || {};
+
+    function loadSettings() {
+      const params = new URLSearchParams(window.location.search);
+      const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "{}");
+
+      els.baseUrl.value =
+        params.get("base_url") || injected.baseUrl || saved.baseUrl || defaultBaseUrl();
+      els.apiKey.value = params.get("api_key") || injected.apiKey || saved.apiKey || "";
+      els.model.value = params.get("model") || injected.model || saved.model || "Qwen/Qwen3-8B";
+      els.maxTokens.value = saved.maxTokens || "256";
+      els.temperature.value = saved.temperature || "0.7";
+      if (params.has("stream")) {
+        els.stream.checked = params.get("stream") !== "0";
+      } else if (typeof saved.stream === "boolean") {
+        els.stream.checked = saved.stream;
+      }
+
+      if (injected.apiKey && !params.get("api_key")) {
+        document.getElementById("apiKeyRow").style.display = "none";
+      }
+    }
+
+    function persistSettings() {
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          baseUrl: els.baseUrl.value.trim(),
+          apiKey: els.apiKey.value,
+          model: els.model.value.trim(),
+          maxTokens: els.maxTokens.value,
+          temperature: els.temperature.value,
+          stream: els.stream.checked,
+        }),
+      );
+    }
+
+    ["baseUrl", "apiKey", "model", "maxTokens", "temperature", "stream"].forEach((id) => {
+      els[id].addEventListener("change", persistSettings);
+      els[id].addEventListener("input", persistSettings);
+    });
+
+    function rootUrl(baseUrl) {
+      const trimmed = baseUrl.replace(/\/+$/, "");
+      return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+    }
+
+    function formatDuration(seconds) {
+      if (seconds == null || Number.isNaN(seconds)) return "unknown";
+      const s = Math.max(0, Math.floor(seconds));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s % 60}s`;
+      return `${s}s`;
+    }
+
+    function localApiUrl(path) {
+      const origin = window.location.origin;
+      if (origin.startsWith("http")) return `${origin}${path}`;
+      return `http://127.0.0.1:8765${path}`;
+    }
+
+    async function refreshServerStatus() {
+      try {
+        const resp = await fetch(localApiUrl("/api/local/status"));
+        const data = await resp.json();
+        applyServerStatus(data);
+      } catch (err) {
+        els.serverDot.className = "dot off";
+        els.serverLabel.textContent = "Status unavailable";
+        els.serverMeta.textContent = String(err.message || err);
+      }
+    }
+
+    function applyServerStatus(data) {
+      const bootstrap = data.bootstrap || {};
+      const instance = data.lambda_instance || {};
+      const on = Boolean(data.server_on);
+      const starting = bootstrap.status === "running" || bootstrap.status === "starting";
+
+      if (starting) {
+        els.serverDot.className = "dot pending";
+        els.serverLabel.textContent = "Starting…";
+        els.serverMeta.textContent = bootstrap.message || "Provisioning Lambda GPU…";
+        els.turnOnBtn.disabled = true;
+        els.turnOffBtn.disabled = true;
+        els.sendBtn.disabled = true;
+        return;
+      }
+
+      if (on) {
+        els.serverDot.className = "dot on";
+        els.serverLabel.textContent = "Server on";
+        const idle = data.seconds_until_idle;
+        const idleText =
+          idle != null
+            ? `Auto-off in ${formatDuration(idle)} without inference`
+            : "Inference server reachable";
+        els.serverMeta.textContent = `${idleText}${instance.ip ? ` · ${instance.ip}` : ""}`;
+        els.turnOnBtn.disabled = true;
+        els.turnOffBtn.disabled = false;
+        els.sendBtn.disabled = false;
+        return;
+      }
+
+      els.serverDot.className = "dot off";
+      els.serverLabel.textContent = "Server off";
+      const instanceText = instance.id
+        ? `Instance ${instance.status || "unknown"} (${instance.ip || "no ip"})`
+        : "No Lambda instance running";
+      els.serverMeta.textContent = bootstrap.message || instanceText;
+      els.turnOnBtn.disabled = false;
+      els.turnOffBtn.disabled = !instance.id;
+      els.sendBtn.disabled = true;
+    }
+
+    async function turnOnServer() {
+      els.serverDot.className = "dot pending";
+      els.serverLabel.textContent = "Starting…";
+      els.serverMeta.textContent = "Launching Lambda GPU (may take several minutes)…";
+      els.turnOnBtn.disabled = true;
+      const resp = await fetch(localApiUrl("/api/local/turn-on"), { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.message || "Turn-on failed");
+      }
+      appendMessage("system", data.message || "Turn-on started.");
+      const poll = setInterval(async () => {
+        await refreshServerStatus();
+        const label = els.serverLabel.textContent || "";
+        if (label === "Server on" || label.startsWith("Status unavailable")) {
+          clearInterval(poll);
+        }
+      }, 5000);
+    }
+
+    async function turnOffServer() {
+      if (!window.confirm("Turn off the Lambda GPU? This stops billing.")) return;
+      els.turnOffBtn.disabled = true;
+      els.serverMeta.textContent = "Shutting down…";
+      const resp = await fetch(localApiUrl("/api/local/shutdown"), { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.message || "Shutdown failed");
+      }
+      appendMessage("system", "Server turned off.");
+      await refreshServerStatus();
+    }
+
+    function setStatus(text, kind) {
+      els.status.textContent = text;
+      els.status.className = `status${kind ? ` ${kind}` : ""}`;
+    }
+
+    function appendMessage(role, content, extraClass) {
+      const node = document.createElement("div");
+      node.className = `message ${role}${extraClass ? ` ${extraClass}` : ""}`;
+      node.textContent = content;
+      els.messages.appendChild(node);
+      els.messages.scrollTop = els.messages.scrollHeight;
+      return node;
+    }
+
+    function authHeaders() {
+      const key = els.apiKey.value.trim();
+      if (!key) {
+        throw new Error("API key is required (set MINISGL_API_KEY).");
+      }
+      return {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      };
+    }
+
+    async function checkHealth() {
+      const url = `${rootUrl(els.baseUrl.value.trim())}/health`;
+      setStatus("Checking /health…");
+      const resp = await fetch(url);
+      const body = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`Health check failed (${resp.status}): ${body}`);
+      }
+      setStatus("Health OK", "ok");
+    }
+
+    async function listModels() {
+      const url = `${els.baseUrl.value.trim().replace(/\/+$/, "")}/models`;
+      setStatus("Fetching /v1/models…");
+      const resp = await fetch(url, { headers: authHeaders() });
+      const body = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`Models request failed (${resp.status}): ${body}`);
+      }
+      const data = JSON.parse(body);
+      const ids = (data.data || []).map((m) => m.id).join(", ") || "(none)";
+      appendMessage("system", `Models: ${ids}`);
+      setStatus("Models loaded", "ok");
+    }
+
+    function parseSseLine(line) {
+      if (!line.startsWith("data:")) return null;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") return { done: true };
+      try {
+        return { json: JSON.parse(payload) };
+      } catch {
+        return { text: payload };
+      }
+    }
+
+    async function streamCompletion(url, payload, assistantNode) {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ ...payload, stream: true }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Chat failed (${resp.status}): ${errText}`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let content = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n");
+        buffer = parts.pop() || "";
+
+        for (const rawLine of parts) {
+          const line = rawLine.trim();
+          if (!line) continue;
+          const parsed = parseSseLine(line);
+          if (!parsed) continue;
+          if (parsed.done) return content;
+          if (parsed.json?.choices?.[0]?.delta?.content) {
+            content += parsed.json.choices[0].delta.content;
+            assistantNode.textContent = content;
+            els.messages.scrollTop = els.messages.scrollHeight;
+          } else if (parsed.text) {
+            content += parsed.text;
+            assistantNode.textContent = content;
+            els.messages.scrollTop = els.messages.scrollHeight;
+          }
+        }
+      }
+
+      return content;
+    }
+
+    async function completeOnce(url, payload) {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ ...payload, stream: false }),
+      });
+      const body = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`Chat failed (${resp.status}): ${body}`);
+      }
+      const data = JSON.parse(body);
+      return data.choices?.[0]?.message?.content || "";
+    }
+
+    async function sendMessage(text) {
+      persistSettings();
+
+      history.push({ role: "user", content: text });
+      appendMessage("user", text);
+
+      const url = `${els.baseUrl.value.trim().replace(/\/+$/, "")}/chat/completions`;
+      const payload = {
+        model: els.model.value.trim(),
+        messages: history.map(({ role, content }) => ({ role, content })),
+        max_tokens: Number(els.maxTokens.value),
+        temperature: Number(els.temperature.value),
+      };
+
+      const assistantNode = appendMessage("assistant", "…");
+      els.sendBtn.disabled = true;
+      setStatus("Generating…");
+
+      try {
+        let content;
+        if (els.stream.checked) {
+          content = await streamCompletion(url, payload, assistantNode);
+        } else {
+          content = await completeOnce(url, payload);
+          assistantNode.textContent = content;
+        }
+        history.push({ role: "assistant", content });
+        setStatus("Done", "ok");
+      } catch (err) {
+        assistantNode.remove();
+        appendMessage("system", String(err.message || err), "error");
+        history.pop();
+        setStatus("Request failed", "err");
+      } finally {
+        els.sendBtn.disabled = false;
+      }
+    }
+
+    els.composer.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = els.prompt.value.trim();
+      if (!text) return;
+      els.prompt.value = "";
+      await sendMessage(text);
+    });
+
+    els.prompt.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        els.composer.requestSubmit();
+      }
+    });
+
+    els.healthBtn.addEventListener("click", async () => {
+      try {
+        await checkHealth();
+      } catch (err) {
+        setStatus(String(err.message || err), "err");
+      }
+    });
+
+    els.modelsBtn.addEventListener("click", async () => {
+      try {
+        await listModels();
+      } catch (err) {
+        setStatus(String(err.message || err), "err");
+      }
+    });
+
+    els.clearBtn.addEventListener("click", () => {
+      history = [];
+      els.messages.innerHTML = "";
+      setStatus("");
+    });
+
+    els.turnOnBtn.addEventListener("click", async () => {
+      try {
+        await turnOnServer();
+      } catch (err) {
+        setStatus(String(err.message || err), "err");
+        await refreshServerStatus();
+      }
+    });
+
+    els.turnOffBtn.addEventListener("click", async () => {
+      try {
+        await turnOffServer();
+      } catch (err) {
+        setStatus(String(err.message || err), "err");
+        await refreshServerStatus();
+      }
+    });
+
+    loadSettings();
+    refreshServerStatus();
+    setInterval(refreshServerStatus, 30000);
+    appendMessage(
+      "system",
+      injected.apiKey
+        ? "Ready. Use Turn on if the server is off, then chat."
+        : "Ready. Set MINISGL_API_KEY in .env or enter it above.",
+    );
+  </script>
+</body>
+</html>

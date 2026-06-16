@@ -1,33 +1,50 @@
-# pycache
+# Local-only workspace material
+.local/
+.lambda-runtime/
+
+# Private environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Python caches and test output
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-# installed packages
-*.dist-info/
-*.egg-info/
-
-# json files
-*.json
-*.jsonl
-
-# profiling data
-*.nsys-rep
-*.ncu-rep
-
-# binaries
+# Python packaging and build output
 build/
 dist/
+*.egg-info/
+*.dist-info/
 *.tar.gz
+*.whl
 
-# virtual environment
+# Virtual environments
 .venv/
 venv/
 env/
 
-# clangd config
-.clangd
+# Profiling output
+*.nsys-rep
+*.ncu-rep
 
-# .vscode
+# Editor and local tool state
+.clangd
 .vscode/
-.coverage
+.DS_Store
+
+# Legacy local scratch folders; keep these out if recreated.
+learning/
+plan/
+retro/
+visuals/
+docs/
+plan.md
