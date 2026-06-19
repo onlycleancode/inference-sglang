@@ -16,13 +16,13 @@ the repo currently serves causal LM architectures only.
 Primary model matrix:
 
 - `Qwen/Qwen3-8B`: dense Qwen3 decoder, Apache-2.0, 8.2B params.
-- `mistralai/Mistral-7B-Instruct-v0.3`: dense Mistral decoder, Apache-2.0, 7B params.
+- `Qwen/Qwen3-32B`: dense Qwen3 decoder, Apache-2.0, 32.8B params.
 - `Qwen/Qwen3-30B-A3B`: Qwen3 sparse MoE, Apache-2.0.
 
 Sources to cite in the implementation notes:
 
 - [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B)
-- [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
+- [Qwen3-32B](https://huggingface.co/Qwen/Qwen3-32B)
 - [Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B)
 
 ## Key Implementation Changes
@@ -39,7 +39,7 @@ Sources to cite in the implementation notes:
 - Deploy the same repo archive and server config to each node.
   - Same Docker image/git SHA, same server args, same API key, same HF token,
     same `dtype=bfloat16`, `cache-type=radix`, `page-size=64`,
-    `max-seq-len-override=4096`, and `cuda-graph-max-bs=64`.
+    `max-seq-len-override=32768`, and `cuda-graph-max-bs=64`.
   - Only `MINISGL_MODEL` differs per node.
   - Expose each remote server through SSH tunnels on local ports `19191`,
     `19192`, and `19193`.

@@ -18,6 +18,14 @@ class DatasetRow:
     max_tokens: int | None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def prompt_text(self) -> str:
+        if self.prompt is not None:
+            return self.prompt
+        return "\n".join(
+            f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in self.messages or []
+        )
+
     def request_body(self, default_max_tokens: int) -> dict[str, Any]:
         body: dict[str, Any] = {
             "max_tokens": self.max_tokens if self.max_tokens is not None else default_max_tokens,
@@ -121,14 +129,27 @@ def warmup_request_body(prompt: str, *, max_tokens: int = 16) -> dict[str, Any]:
     }
 
 
-def prompt_length_bucket(char_len: int) -> str:
-    if char_len < 128:
-        return "<128"
-    if char_len < 512:
-        return "128-512"
-    if char_len < 2048:
-        return "512-2048"
-    return "2048+"
+def estimate_prompt_tokens(text: str) -> int:
+    return max(1, len(text.split()))
+
+
+def row_prompt_token_estimate(row: DatasetRow) -> int:
+    hinted = row.metadata.get("prompt_token_estimate")
+    if isinstance(hinted, int) and hinted > 0:
+        return hinted
+    return estimate_prompt_tokens(row.prompt_text)
+
+
+def prompt_length_bucket(token_count: int) -> str:
+    if token_count < 512:
+        return "<512"
+    if token_count < 4096:
+        return "512-4k"
+    if token_count < 8192:
+        return "4k-8k"
+    if token_count < 16384:
+        return "8k-16k"
+    return "16k+"
 
 
 def output_length_bucket(token_count: int) -> str:

@@ -70,7 +70,7 @@ The harness launches **three same-type Lambda GPU instances** in one region, dep
 - `--dtype bfloat16`
 - `--cache-type radix`
 - `--page-size 64`
-- `--max-seq-len-override 4096`
+- `--max-seq-len-override 32768`
 - `--cuda-graph-max-bs 64`
 
 Only `MINISGL_MODEL` differs per node. Same archive, git SHA (via `git rev-parse HEAD`), `MINISGL_API_KEY`, and `HF_TOKEN` across nodes.
@@ -261,7 +261,7 @@ Prompt controls are shown above the charts once a run is `ready`:
 | Node | Model | HF Link | Notes |
 |------|-------|---------|-------|
 | 0 | Qwen/Qwen3-8B | [link](https://huggingface.co/Qwen/Qwen3-8B) | Dense Qwen3 decoder, Apache-2.0, ~8.2B params |
-| 1 | mistralai/Mistral-7B-Instruct-v0.3 | [link](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3) | Dense Mistral instruct, Apache-2.0, 7B params |
+| 1 | Qwen/Qwen3-32B | [link](https://huggingface.co/Qwen/Qwen3-32B) | Dense Qwen3 decoder, Apache-2.0, 32.8B params |
 | 2 | Qwen/Qwen3-30B-A3B | [link](https://huggingface.co/Qwen/Qwen3-30B-A3B) | Qwen3 sparse MoE, Apache-2.0 |
 
 Text-diffusion models are intentionally excluded (MiniSGLang serves causal LMs only).

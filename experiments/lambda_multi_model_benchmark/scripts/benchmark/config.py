@@ -11,6 +11,7 @@ BENCHMARK_RUNS_DIR = RUNTIME_DIR / "benchmark-runs"
 DEFAULT_DB_PATH = RUNTIME_DIR / "benchmark.duckdb"
 SAMPLE_DATASET = ROOT / "benchmark" / "multi_model" / "sample_dataset.jsonl"
 ALPACA_2K_DATASET = ROOT / "benchmark" / "multi_model" / "alpaca_2k_prompts.jsonl"
+LONG_CONTEXT_DATASET = ROOT / "benchmark" / "multi_model" / "long_context_mixed.jsonl"
 
 # Local tunnel ports map 1:1 to model nodes (remote port stays 1919).
 TUNNEL_PORTS = (19191, 19192, 19193)
@@ -19,12 +20,14 @@ NODE_COUNT = 3
 
 BENCHMARK_INSTANCE_PREFIX = "minisgl-benchmark"
 
-# MiniSGLang-only model matrix for v1.
+# Dense 8B, dense 32B, and 30B MoE models with native 32k context.
 MODEL_MATRIX: tuple[tuple[str, int], ...] = (
     ("Qwen/Qwen3-8B", TUNNEL_PORTS[0]),
-    ("mistralai/Mistral-7B-Instruct-v0.3", TUNNEL_PORTS[1]),
+    ("Qwen/Qwen3-32B", TUNNEL_PORTS[1]),
     ("Qwen/Qwen3-30B-A3B", TUNNEL_PORTS[2]),
 )
+
+DEFAULT_MAX_SEQ_LEN = 32768
 
 # Standardized server args for deploy parity across nodes.
 SERVER_ARGS: tuple[str, ...] = (
@@ -35,7 +38,7 @@ SERVER_ARGS: tuple[str, ...] = (
     "--page-size",
     "64",
     "--max-seq-len-override",
-    "4096",
+    str(DEFAULT_MAX_SEQ_LEN),
     "--cuda-graph-max-bs",
     "64",
 )
@@ -58,7 +61,7 @@ INSTANCE_HOURLY_USD: dict[str, float] = {
 class BenchmarkConfig:
     """Runtime configuration for a benchmark run."""
 
-    dataset_path: Path = ALPACA_2K_DATASET
+    dataset_path: Path = LONG_CONTEXT_DATASET
     db_path: Path = DEFAULT_DB_PATH
     region: str = "us-east-1"
     concurrency_levels: tuple[int, ...] = (1, 4, 8)

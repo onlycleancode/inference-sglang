@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -62,6 +63,19 @@ def git_sha() -> str | None:
     return None
 
 
+def _compose_command_yaml(*, port: int) -> str:
+    command = [
+        "--model",
+        "${MINISGL_MODEL}",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        str(port),
+        *SERVER_ARGS,
+    ]
+    return "\n".join(f"      - {json.dumps(arg)}" for arg in command)
+
+
 def remote_deploy_node(
     *,
     ip: str,
@@ -71,6 +85,7 @@ def remote_deploy_node(
     api_key: str,
     hf_token: str,
     port: int = REMOTE_PORT,
+    cuda_arch_list: str | None = None,
 ) -> float:
     """Deploy one node and return model load duration in seconds."""
     scp_cmd = [
@@ -84,7 +99,6 @@ def remote_deploy_node(
     ]
     _run(scp_cmd)
 
-    server_args = " ".join(SERVER_ARGS)
     remote_env = {
         "MINISGL_MODEL": model_id,
         "MINISGL_PORT": str(port),
@@ -96,7 +110,10 @@ def remote_deploy_node(
         "FLASHINFER_WORKSPACE_BASE": "/app/.cache/flashinfer",
         "MINISGL_DTYPE": "bfloat16",
     }
+    if cuda_arch_list:
+        remote_env["TVM_FFI_CUDA_ARCH_LIST"] = cuda_arch_list
     env_body = "\n".join(f"{key}={value}" for key, value in remote_env.items())
+    command_yaml = _compose_command_yaml(port=port)
 
     remote_script = f"""set -euo pipefail
 mkdir -p ~/minisgl && cd ~/minisgl
@@ -109,22 +126,7 @@ cat > benchmark-compose.override.yml <<'OVERRIDE'
 services:
   minisgl:
     command:
-      - --model
-      - ${{MINISGL_MODEL}}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "{port}"
-      - --dtype
-      - bfloat16
-      - --cache-type
-      - radix
-      - --page-size
-      - "64"
-      - --max-seq-len-override
-      - "4096"
-      - --cuda-graph-max-bs
-      - "64"
+{command_yaml}
 OVERRIDE
 if ! command -v docker >/dev/null 2>&1; then
   sudo apt-get update -qq

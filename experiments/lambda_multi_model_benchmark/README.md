@@ -18,7 +18,9 @@ DuckDB.
   Lambda instance launch helpers, deployment, cleanup, dataset parsing,
   metrics, DuckDB persistence, runner, dashboard batch control, and Streamlit
   dashboard.
-- `benchmark/multi_model/alpaca_2k_prompts.jsonl` - default 2,000-prompt
+- `benchmark/multi_model/long_context_mixed.jsonl` - default synthetic
+  workload with short, ~4k, ~8k, and ~16k prompt classes.
+- `benchmark/multi_model/alpaca_2k_prompts.jsonl` - short-prompt reference
   workload converted from `mhenrichsen/alpaca_2k_test`.
 - `benchmark/multi_model/sample_dataset.jsonl` - sample workload used for
   dry-run and local validation.

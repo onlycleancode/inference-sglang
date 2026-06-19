@@ -199,7 +199,7 @@ def test_duckdb_schema_and_inserts(tmp_path: Path) -> None:
         tpot_ms=10.0,
         e2e_s=1.2,
         output_tokens=64,
-        prompt_len_bucket="128-512",
+        prompt_len_bucket="<512",
         output_len_bucket="32-128",
         output_tokens_per_sec=53.3,
         started_at=started,
@@ -226,15 +226,40 @@ def test_duckdb_schema_and_inserts(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_default_dataset_is_alpaca_2k() -> None:
+def test_model_matrix_uses_dense_8b_dense_32b_and_moe_30b() -> None:
+    cfg = _load_benchmark("bench_config_models", "config.py")
+
+    assert [model for model, _port in cfg.MODEL_MATRIX] == [
+        "Qwen/Qwen3-8B",
+        "Qwen/Qwen3-32B",
+        "Qwen/Qwen3-30B-A3B",
+    ]
+    assert cfg.DEFAULT_MAX_SEQ_LEN == 32768
+    assert "32768" in cfg.SERVER_ARGS
+
+
+def test_default_dataset_is_long_context_mixed() -> None:
     cfg = _load_benchmark("bench_config_alpaca", "config.py")
     ds_mod = _load_benchmark("bench_dataset_alpaca", "dataset.py")
 
-    assert cfg.BenchmarkConfig().dataset_path == cfg.ALPACA_2K_DATASET
+    assert cfg.BenchmarkConfig().dataset_path == cfg.LONG_CONTEXT_DATASET
+    dataset = ds_mod.load_dataset(cfg.LONG_CONTEXT_DATASET)
+    assert dataset.size == 12
+    buckets = {
+        ds_mod.prompt_length_bucket(ds_mod.row_prompt_token_estimate(row)) for row in dataset.rows
+    }
+    assert {"<512", "4k-8k", "8k-16k", "16k+"}.issubset(buckets)
+
+
+def test_alpaca_2k_dataset_is_short_prompt_reference() -> None:
+    cfg = _load_benchmark("bench_config_alpaca_reference", "config.py")
+    ds_mod = _load_benchmark("bench_dataset_alpaca_reference", "dataset.py")
+
     dataset = ds_mod.load_dataset(cfg.ALPACA_2K_DATASET)
     assert dataset.size == 2000
     assert dataset.rows[0].row_id == "alpaca-2k-0000"
     assert dataset.rows[0].metadata["source"] == "mhenrichsen/alpaca_2k_test"
+    assert max(ds_mod.row_prompt_token_estimate(row) for row in dataset.rows) < 512
 
 
 def test_dataset_parsing_prompt_messages_and_hash(tmp_path: Path) -> None:
@@ -308,6 +333,21 @@ def test_dataset_request_body_uses_top_level_sampling_fields() -> None:
     assert warmup["ignore_eos"] is True
     assert warmup["top_k"] == 1
     assert "extra_body" not in warmup
+
+
+def test_prompt_length_bucket_uses_dataset_token_hint() -> None:
+    ds_mod = _load_benchmark("bench_dataset_prompt_bucket", "dataset.py")
+    row = ds_mod.DatasetRow(
+        row_index=0,
+        row_id="r0",
+        prompt="short text",
+        messages=None,
+        max_tokens=32,
+        metadata={"prompt_token_estimate": 8192},
+    )
+
+    assert ds_mod.row_prompt_token_estimate(row) == 8192
+    assert ds_mod.prompt_length_bucket(ds_mod.row_prompt_token_estimate(row)) == "8k-16k"
 
 
 def test_node_upsert_preserves_model_load_s_on_warmup_update(tmp_path: Path) -> None:
@@ -403,7 +443,7 @@ def test_dashboard_filter_keeps_null_output_bucket_errors() -> None:
         {
             "model_id": ["m1", "m1"],
             "concurrency": [1, 1],
-            "prompt_len_bucket": ["128-512", "128-512"],
+            "prompt_len_bucket": ["<512", "<512"],
             "output_len_bucket": ["32-128", None],
             "status": ["ok", "error"],
         }
@@ -412,7 +452,7 @@ def test_dashboard_filter_keeps_null_output_bucket_errors() -> None:
         requests,
         models=["m1"],
         concurrency=[1],
-        prompt_buckets=["128-512"],
+        prompt_buckets=["<512"],
         output_buckets=["32-128"],
         statuses=["ok", "error"],
     )

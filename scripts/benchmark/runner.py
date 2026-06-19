@@ -16,7 +16,16 @@ import urllib.request
 
 from benchmark.cleanup import fetch_gpu_sample_via_ssh
 from benchmark.config import BenchmarkConfig
-from benchmark.dataset import Dataset, DatasetRow, load_dataset, output_length_bucket, prompt_length_bucket, warmup_request_body
+from benchmark.dataset import (
+    Dataset,
+    DatasetRow,
+    estimate_prompt_tokens,
+    load_dataset,
+    output_length_bucket,
+    prompt_length_bucket,
+    row_prompt_token_estimate,
+    warmup_request_body,
+)
 from benchmark.duckdb_store import BenchmarkStore
 from benchmark.metrics import compute_request_metrics
 from benchmark.run_state import RunState
@@ -191,7 +200,7 @@ async def run_warmup(
             tpot_ms=None,
             e2e_s=None,
             output_tokens=None,
-            prompt_len_bucket=prompt_length_bucket(len(prompt)),
+            prompt_len_bucket=prompt_length_bucket(estimate_prompt_tokens(prompt)),
             output_len_bucket=None,
             output_tokens_per_sec=None,
             started_at=started_at,
@@ -243,7 +252,7 @@ async def run_benchmark_for_node(
                     default_max_tokens=default_max_tokens,
                 )
                 request_id = f"{run_id}-n{node_index}-c{concurrency}-{row.row_id}-{uuid.uuid4().hex[:6]}"
-                prompt_text = row.prompt or json.dumps(row.messages)
+                prompt_token_count = row_prompt_token_estimate(row)
                 if err or len(tics) < 2:
                     store.insert_request(
                         request_id=request_id,
@@ -259,7 +268,7 @@ async def run_benchmark_for_node(
                         tpot_ms=None,
                         e2e_s=time.perf_counter() - t0,
                         output_tokens=max(len(tics) - 1, 0),
-                        prompt_len_bucket=prompt_length_bucket(len(prompt_text)),
+                        prompt_len_bucket=prompt_length_bucket(prompt_token_count),
                         output_len_bucket=None,
                         output_tokens_per_sec=None,
                         started_at=started_at,
@@ -287,7 +296,7 @@ async def run_benchmark_for_node(
                     tpot_ms=metrics.tpot_s * 1000.0,
                     e2e_s=metrics.e2e_s,
                     output_tokens=metrics.output_tokens,
-                    prompt_len_bucket=prompt_length_bucket(len(prompt_text)),
+                    prompt_len_bucket=prompt_length_bucket(prompt_token_count),
                     output_len_bucket=output_length_bucket(metrics.output_tokens),
                     output_tokens_per_sec=metrics.output_tokens_per_sec,
                     started_at=started_at,
