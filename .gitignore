@@ -1,6 +1,9 @@
 # Local-only workspace material
 .local/
 .lambda-runtime/
+plans/
+!experiments/lambda_multi_model_benchmark/plans/
+!experiments/lambda_multi_model_benchmark/plans/**
 
 # Private environment files
 .env
@@ -48,3 +51,4 @@ retro/
 visuals/
 docs/
 plan.md
+!experiments/lambda_multi_model_benchmark/plans/plan.md

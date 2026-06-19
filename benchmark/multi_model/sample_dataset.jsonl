@@ -1,0 +1,5 @@
+{"id": "short-1", "prompt": "Explain what a GPU is in one paragraph.", "max_tokens": 64}
+{"id": "short-2", "prompt": "Write a haiku about machine learning.", "max_tokens": 32}
+{"id": "chat-1", "messages": [{"role": "user", "content": "List three sorting algorithms and their time complexity."}], "max_tokens": 96}
+{"id": "metadata-1", "prompt": "Summarize the benefits of radix attention caching.", "metadata": {"topic": "kvcache"}, "max_tokens": 80}
+{"id": "default-tokens", "prompt": "What is tensor parallelism?"}

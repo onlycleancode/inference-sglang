@@ -39,6 +39,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+benchmark = [
+    "duckdb",
+    "streamlit",
+    "plotly",
+    "pandas",
+    "pyarrow",
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
