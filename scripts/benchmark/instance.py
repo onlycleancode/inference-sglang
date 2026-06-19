@@ -63,21 +63,33 @@ def launch_benchmark_cluster(
     run_id: str,
     quantity: int = NODE_COUNT,
 ) -> list[LaunchedNode]:
-    """Launch same-type instances in one region; caller must cleanup on failure."""
-    payload = {
-        "region_name": region,
-        "instance_type_name": instance_type,
-        "ssh_key_names": [ssh_key_name],
-        "quantity": quantity,
-        "name": f"{BENCHMARK_INSTANCE_PREFIX}-{run_id}",
-    }
-    resp = api_request("POST", "/instance-operations/launch", token, payload)
-    instance_ids = resp.get("data", {}).get("instance_ids") or resp.get("instance_ids") or []
-    if len(instance_ids) != quantity:
-        # Partial launch: terminate anything we got back before raising.
+    """Launch same-type instances in one region; caller must cleanup on failure.
+
+    Lambda accounts can reject multi-instance launch requests with
+    ``quantity > 1``. Launch nodes individually so the benchmark still gets a
+    same-type, same-region cluster while keeping explicit partial-launch cleanup.
+    """
+    instance_ids: list[str] = []
+    try:
+        for index in range(quantity):
+            payload = {
+                "region_name": region,
+                "instance_type_name": instance_type,
+                "ssh_key_names": [ssh_key_name],
+                "quantity": 1,
+                "name": f"{BENCHMARK_INSTANCE_PREFIX}-{run_id}-{index}",
+            }
+            resp = api_request("POST", "/instance-operations/launch", token, payload)
+            launched = resp.get("data", {}).get("instance_ids") or resp.get("instance_ids") or []
+            if len(launched) != 1:
+                for instance_id in launched:
+                    terminate_instance(token, instance_id)
+                raise RuntimeError(f"Expected 1 instance, got {len(launched)}: {resp}")
+            instance_ids.append(launched[0])
+    except BaseException:
         for instance_id in instance_ids:
             terminate_instance(token, instance_id)
-        raise RuntimeError(f"Expected {quantity} instances, got {len(instance_ids)}: {resp}")
+        raise
 
     return [
         LaunchedNode(

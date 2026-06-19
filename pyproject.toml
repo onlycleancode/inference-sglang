@@ -33,6 +33,8 @@ dependencies = [
     "fastapi",
     "prompt_toolkit",
     "openai",
+    "protobuf",
+    "sentencepiece",
     "apache-tvm-ffi>=0.1.4",
     "sgl_kernel>=0.3.17.post1",
     "quack-kernels",

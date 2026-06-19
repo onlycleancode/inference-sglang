@@ -71,6 +71,7 @@ def remote_deploy_node(
     api_key: str,
     hf_token: str,
     port: int = REMOTE_PORT,
+    cuda_arch_list: str | None = None,
 ) -> float:
     """Deploy one node and return model load duration in seconds."""
     scp_cmd = [
@@ -96,6 +97,8 @@ def remote_deploy_node(
         "FLASHINFER_WORKSPACE_BASE": "/app/.cache/flashinfer",
         "MINISGL_DTYPE": "bfloat16",
     }
+    if cuda_arch_list:
+        remote_env["TVM_FFI_CUDA_ARCH_LIST"] = cuda_arch_list
     env_body = "\n".join(f"{key}={value}" for key, value in remote_env.items())
 
     remote_script = f"""set -euo pipefail
@@ -160,7 +163,7 @@ exit 1
         "bash",
         "-s",
     ]
-    proc = subprocess.run(ssh_cmd, input=remote_script.encode(), capture_output=True, text=True)
+    proc = subprocess.run(ssh_cmd, input=remote_script, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"Remote deploy failed on {ip}: {proc.stderr or proc.stdout}")
 

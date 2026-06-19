@@ -82,6 +82,103 @@ def test_select_instance_type_no_capacity_raises(monkeypatch) -> None:
         inst.select_instance_type_with_capacity("token", instance_types=["gpu_1x_h100_sxm5"])
 
 
+def test_launch_cluster_uses_individual_launches(monkeypatch) -> None:
+    inst = _load_benchmark("bench_instance_launch", "instance.py")
+    calls: list[dict] = []
+    terminated: list[str] = []
+
+    def fake_api(_method: str, _path: str, _token: str, payload: dict) -> dict:
+        calls.append(payload)
+        return {"data": {"instance_ids": [f"inst-{len(calls) - 1}"]}}
+
+    monkeypatch.setattr(inst, "api_request", fake_api)
+    monkeypatch.setattr(inst, "terminate_instance", lambda _token, instance_id: terminated.append(instance_id))
+
+    nodes = inst.launch_benchmark_cluster(
+        "token",
+        "ssh-key",
+        instance_type="gpu_1x_h100_sxm5",
+        region="us-east-1",
+        run_id="run-1",
+        quantity=3,
+    )
+
+    assert [call["quantity"] for call in calls] == [1, 1, 1]
+    assert [call["name"] for call in calls] == [
+        "minisgl-benchmark-run-1-0",
+        "minisgl-benchmark-run-1-1",
+        "minisgl-benchmark-run-1-2",
+    ]
+    assert [node.instance_id for node in nodes] == ["inst-0", "inst-1", "inst-2"]
+    assert terminated == []
+
+
+def test_launch_cluster_cleans_up_after_individual_launch_failure(monkeypatch) -> None:
+    inst = _load_benchmark("bench_instance_launch_cleanup", "instance.py")
+    calls = 0
+    terminated: list[str] = []
+
+    def fake_api(_method: str, _path: str, _token: str, _payload: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("launch failed")
+        return {"data": {"instance_ids": [f"inst-{calls}"]}}
+
+    monkeypatch.setattr(inst, "api_request", fake_api)
+    monkeypatch.setattr(inst, "terminate_instance", lambda _token, instance_id: terminated.append(instance_id))
+
+    with pytest.raises(RuntimeError, match="launch failed"):
+        inst.launch_benchmark_cluster(
+            "token",
+            "ssh-key",
+            instance_type="gpu_1x_h100_sxm5",
+            region="us-east-1",
+            run_id="run-2",
+            quantity=3,
+        )
+
+    assert terminated == ["inst-1"]
+
+
+def test_remote_deploy_passes_text_input_to_ssh(monkeypatch, tmp_path: Path) -> None:
+    deploy = _load_benchmark("bench_deploy_text_input", "deploy.py")
+    archive = tmp_path / "archive.tar.gz"
+    archive.write_text("fake")
+    ssh_inputs: list[object] = []
+
+    class Proc:
+        def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(cmd: list[str], **kwargs) -> Proc:
+        if cmd[0] == "scp":
+            return Proc()
+        if cmd[0] == "ssh" and cmd[-2:] == ["bash", "-s"]:
+            ssh_inputs.append(kwargs.get("input"))
+            return Proc(stdout="MODEL_LOAD_SECONDS=42\n")
+        return Proc()
+
+    monkeypatch.setattr(deploy.subprocess, "run", fake_run)
+
+    model_load_s = deploy.remote_deploy_node(
+        ip="192.0.2.1",
+        ssh_key=tmp_path / "key",
+        archive=archive,
+        model_id="Qwen/Qwen3-8B",
+        api_key="api-key",
+        hf_token="hf-token",
+        cuda_arch_list="9.0",
+    )
+
+    assert model_load_s == 42.0
+    assert len(ssh_inputs) == 1
+    assert isinstance(ssh_inputs[0], str)
+    assert "TVM_FFI_CUDA_ARCH_LIST=9.0" in ssh_inputs[0]
+
+
 def test_cleanup_partial_launch_terminates_tracked_ids(monkeypatch) -> None:
     cleanup_mod = _load_benchmark("bench_cleanup_partial", "cleanup.py")
     terminated: list[str] = []
@@ -393,6 +490,40 @@ def test_stream_completion_skips_finish_reason_stop_chunk() -> None:
 
     metrics = metrics_mod.compute_request_metrics(tics)
     assert metrics.output_tokens == 2
+
+
+def test_wait_for_models_sends_authorization(monkeypatch) -> None:
+    runner_mod = _load_benchmark("bench_runner_auth_models", "runner.py")
+    captured_headers: list[dict] = []
+
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self) -> bytes:
+            return b'{"data":[{"id":"test-model"}]}'
+
+    def fake_urlopen(req, *, timeout: float):
+        captured_headers.append(dict(req.header_items()))
+        return Resp()
+
+    monkeypatch.setattr(runner_mod, "_urlopen_sync", fake_urlopen)
+    model = asyncio.run(
+        runner_mod.wait_for_models(
+            "http://127.0.0.1:19191/v1",
+            api_key="secret",
+            timeout_s=1,
+            interval_s=0,
+        )
+    )
+
+    assert model == "test-model"
+    assert captured_headers[0]["Authorization"] == "Bearer secret"
 
 
 def test_dashboard_filter_keeps_null_output_bucket_errors() -> None:

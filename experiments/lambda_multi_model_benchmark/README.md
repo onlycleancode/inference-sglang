@@ -27,6 +27,9 @@ DuckDB.
 - `plans/plan.md` - original implementation plan plus review notes.
 - `plans/implementation-spec.md` - implementation decisions, verification
   notes, and known limitations.
+- `STARTUP_RUNBOOK.md` - operational startup guide from the first successful
+  real three-node run, including preflight checks, known failure modes, and
+  validation commands.
 
 ## Core Repo Integration
 

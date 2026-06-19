@@ -54,12 +54,21 @@ async def wait_for_health(base_url: str, *, timeout_s: int = 900, interval_s: in
     raise RuntimeError(f"Timed out waiting for health at {base_url}")
 
 
-async def wait_for_models(base_url: str, *, timeout_s: int = 900, interval_s: int = 5) -> str:
+async def wait_for_models(
+    base_url: str,
+    *,
+    api_key: str | None = None,
+    timeout_s: int = 900,
+    interval_s: int = 5,
+) -> str:
     deadline = time.time() + timeout_s
     url = f"{base_url.rstrip('/')}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     while time.time() < deadline:
         try:
-            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            req = urllib.request.Request(url, headers=headers)
             resp = await asyncio.to_thread(_urlopen_sync, req, timeout=5)
             with resp:
                 payload = json.loads(resp.read().decode())
@@ -346,7 +355,7 @@ async def prepare_nodes_for_dashboard(
     for node in run_state.nodes:
         base_url = f"http://127.0.0.1:{node.local_port}/v1"
         await wait_for_health(base_url)
-        model = await wait_for_models(base_url)
+        model = await wait_for_models(base_url, api_key=api_key)
         warmup_s = await run_warmup(
             base_url=base_url,
             api_key=api_key,
@@ -391,7 +400,7 @@ async def run_full_benchmark(
     tasks = []
     for node in run_state.nodes:
         base_url = f"http://127.0.0.1:{node.local_port}/v1"
-        model = await wait_for_models(base_url)
+        model = await wait_for_models(base_url, api_key=api_key)
         tasks.append(
             run_benchmark_for_node(
                 base_url=base_url,

@@ -38,6 +38,7 @@ ARG PYTHON_VERSION
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python${PYTHON_VERSION} \
+    python${PYTHON_VERSION}-dev \
     python${PYTHON_VERSION}-venv \
     libnuma1 \
     && rm -rf /var/lib/apt/lists/*

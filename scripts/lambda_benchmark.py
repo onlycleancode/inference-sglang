@@ -19,6 +19,7 @@ from lambda_common import ENV_FILE, load_env_file, require  # noqa: E402
 from benchmark.cleanup import BenchmarkCleanupManager, start_ssh_tunnel  # noqa: E402
 from benchmark.config import (  # noqa: E402
     BenchmarkConfig,
+    CUDA_ARCH_BY_INSTANCE_TYPE,
     INSTANCE_HOURLY_USD,
     MODEL_MATRIX,
 )
@@ -232,6 +233,7 @@ def run_benchmark(config: BenchmarkConfig, *, wait_for_control_fn: WaitForContro
                     model_id=node.model_id,
                     api_key=api_key,
                     hf_token=hf_token,
+                    cuda_arch_list=CUDA_ARCH_BY_INSTANCE_TYPE.get(capacity.instance_type),
                 )
                 tunnel = start_ssh_tunnel(ip=ip, ssh_key=ssh_key, local_port=node.local_port)
                 cleanup.register_tunnel_pid(tunnel.pid)

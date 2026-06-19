@@ -53,6 +53,13 @@ INSTANCE_HOURLY_USD: dict[str, float] = {
     "gpu_1x_a100": 1.29,
 }
 
+CUDA_ARCH_BY_INSTANCE_TYPE: dict[str, str] = {
+    "gpu_1x_h100_sxm5": "9.0",
+    "gpu_1x_h100_pcie": "9.0",
+    "gpu_1x_a100_sxm4": "8.0",
+    "gpu_1x_a100": "8.0",
+}
+
 
 @dataclass
 class BenchmarkConfig:
