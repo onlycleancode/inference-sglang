@@ -68,6 +68,30 @@ def _mock_dry_run_capacity(
     return SelectedCapacity(instance_type=ordered[0], region=preferred_region or "us-east-1")
 
 
+def _archive_existing_dashboard_db(db_path: Path, *, run_id: str) -> Path | None:
+    """Move the previous dashboard DB aside so each launcher run starts clean."""
+    if not db_path.parent.exists():
+        return None
+
+    db_files = sorted(path for path in db_path.parent.glob(f"{db_path.name}*") if path.is_file())
+    if not db_files:
+        return None
+
+    archive_parent = db_path.parent / "benchmark-db-archive"
+    archive_parent.mkdir(parents=True, exist_ok=True)
+    archive_dir = archive_parent / run_id
+    suffix = 2
+    while archive_dir.exists():
+        archive_dir = archive_parent / f"{run_id}-{suffix}"
+        suffix += 1
+    archive_dir.mkdir()
+
+    for db_file in db_files:
+        db_file.rename(archive_dir / db_file.name)
+    print(f"Archived previous dashboard DB files to: {archive_dir}")
+    return archive_dir
+
+
 def run_dry_run(
     config: BenchmarkConfig,
     *,
@@ -86,7 +110,10 @@ def run_dry_run(
     capacity = select_fn(capacity_token, preferred_region=config.region)
 
     run_id = config.run_id or new_run_id()
+    archived_db = _archive_existing_dashboard_db(config.db_path, run_id=run_id)
     run_state = RunState.create(run_id=run_id, models=list(config.models))
+    if archived_db is not None:
+        run_state.extra["archived_db_dir"] = str(archived_db)
     run_state.instance_type = capacity.instance_type
     run_state.region = capacity.region
     run_state.status = "dry_run"
@@ -165,7 +192,10 @@ def run_benchmark(config: BenchmarkConfig, *, wait_for_control_fn: WaitForContro
     ssh_key = Path(os.getenv("SSH_PRIVATE_KEY_PATH", str(Path.home() / ".ssh/id_ed25519")))
 
     run_id = config.run_id or new_run_id()
+    archived_db = _archive_existing_dashboard_db(config.db_path, run_id=run_id)
     run_state = RunState.create(run_id=run_id, models=list(config.models))
+    if archived_db is not None:
+        run_state.extra["archived_db_dir"] = str(archived_db)
     store: BenchmarkStore | None = BenchmarkStore(config.db_path)
     wait_fn = wait_for_control_fn or wait_for_dashboard_control
 

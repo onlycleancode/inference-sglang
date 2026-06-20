@@ -605,6 +605,8 @@ def test_dry_run_mode(tmp_path: Path, monkeypatch) -> None:
     cli = _load_module("lambda_benchmark_dry", SCRIPTS / "lambda_benchmark.py")
 
     db_path = tmp_path / "dry.duckdb"
+    db_path.write_text("stale dashboard data")
+    db_path.with_name("dry.duckdb.wal").write_text("stale wal")
     runs_dir = tmp_path / "benchmark-runs"
     monkeypatch.setattr(cfg, "BENCHMARK_RUNS_DIR", runs_dir)
     monkeypatch.setattr(cfg, "DEFAULT_DB_PATH", db_path)
@@ -621,18 +623,23 @@ def test_dry_run_mode(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(inst, "instance_regions_with_capacity", fake_regions)
     monkeypatch.setattr(inst, "pick_region", lambda *_a, **_k: "us-east-1")
 
-    config = cli.BenchmarkConfig(db_path=db_path, dry_run=True)
+    config = cli.BenchmarkConfig(db_path=db_path, dry_run=True, run_id="dry-run-mode")
     rc = cli.run_dry_run(config, select_capacity_fn=inst.select_instance_type_with_capacity)
     assert rc == 0
     assert db_path.exists()
     assert any(runs_dir.glob("*.json"))
+    archive_dir = tmp_path / "benchmark-db-archive" / "dry-run-mode"
+    assert (archive_dir / "dry.duckdb").read_text() == "stale dashboard data"
+    assert (archive_dir / "dry.duckdb.wal").read_text() == "stale wal"
 
     conn = duckdb.connect(str(db_path), read_only=True)
     row = conn.execute(
         "SELECT instance_type, region FROM benchmark_runs LIMIT 1"
     ).fetchone()
+    run_count = conn.execute("SELECT count(*) FROM benchmark_runs").fetchone()[0]
     conn.close()
     assert row == ("gpu_1x_h100_sxm5", "us-east-1")
+    assert run_count == 1
 
 
 @pytest.mark.skipif(

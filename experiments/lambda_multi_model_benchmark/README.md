@@ -65,11 +65,16 @@ Latest focused verification:
 # creates run state and DuckDB under .lambda-runtime/
 ```
 
-Real deployment defaults to the Alpaca 2k workload:
+Real deployment defaults to the mixed long-context workload:
 
 ```bash
 .venv/bin/python scripts/lambda_benchmark.py --concurrency 1 4 8
 ```
+
+Each launcher invocation starts the dashboard DuckDB from a clean file. If
+`.lambda-runtime/benchmark.duckdb` already exists, it is moved to
+`.lambda-runtime/benchmark-db-archive/<run_id>/` before the new run is
+recorded, so the default dashboard view does not show stale prior iterations.
 
 After deployment and warmup, open the printed Streamlit dashboard command. Use
 the dashboard controls to send the next N prompts or N random prompts; N is per

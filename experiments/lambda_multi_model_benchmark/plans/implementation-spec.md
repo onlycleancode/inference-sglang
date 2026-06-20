@@ -118,6 +118,11 @@ Sampling: `temperature=0.0`, top-level `ignore_eos=True`, `top_k=1` (aligned wit
 
 Default DB path: `.lambda-runtime/benchmark.duckdb`.
 
+At run start, the launcher archives any existing default dashboard DB files to
+`.lambda-runtime/benchmark-db-archive/<run_id>/` before opening DuckDB. This
+keeps historical telemetry available while ensuring a new dashboard session
+does not display stale rows from earlier iterations.
+
 **Why:** DuckDB supports local analytics, fast aggregations, and Streamlit/Pandas integration without a separate server.
 
 ### Metric formulas
