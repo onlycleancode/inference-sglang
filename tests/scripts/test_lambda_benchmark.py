@@ -8,6 +8,7 @@ import json
 import signal
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -728,6 +729,72 @@ def test_concurrency_sweep_overlaps_requests(tmp_path: Path) -> None:
 
     assert max_in_flight >= 2
     assert elapsed < delay_s * 4 * 0.85
+
+
+def test_parallel_node_deploy_overlaps_nodes(monkeypatch, tmp_path: Path) -> None:
+    cli = _load_module("lambda_benchmark_parallel_deploy", SCRIPTS / "lambda_benchmark.py")
+    run_state = cli.RunState.create(
+        run_id="parallel-deploy",
+        models=[
+            ("model-0", 19191),
+            ("model-1", 19192),
+            ("model-2", 19193),
+        ],
+    )
+    for idx, node in enumerate(run_state.nodes):
+        node.instance_id = f"inst-{idx}"
+
+    barrier = threading.Barrier(3)
+    wait_calls: list[str] = []
+    deploy_calls: list[str] = []
+    lock = threading.Lock()
+    delay_s = 0.08
+
+    def fake_wait_for_ssh(ip: str, _ssh_key: Path) -> None:
+        with lock:
+            wait_calls.append(ip)
+
+    def fake_remote_deploy_node(
+        *,
+        ip: str,
+        ssh_key: Path,
+        archive: Path,
+        model_id: str,
+        api_key: str,
+        hf_token: str,
+        cuda_arch_list: str | None,
+    ) -> float:
+        del ip, ssh_key, archive, api_key, hf_token, cuda_arch_list
+        with lock:
+            deploy_calls.append(model_id)
+        barrier.wait(timeout=2.0)
+        time.sleep(delay_s)
+        return float(model_id.rsplit("-", 1)[1])
+
+    monkeypatch.setattr(cli, "wait_for_ssh", fake_wait_for_ssh)
+    monkeypatch.setattr(cli, "remote_deploy_node", fake_remote_deploy_node)
+
+    started = time.perf_counter()
+    results = cli._deploy_nodes_parallel(
+        nodes=run_state.nodes,
+        ips={
+            "inst-0": "192.0.2.10",
+            "inst-1": "192.0.2.11",
+            "inst-2": "192.0.2.12",
+        },
+        ssh_key=tmp_path / "key",
+        archive=tmp_path / "archive.tar.gz",
+        api_key="api-key",
+        hf_token="hf-token",
+        cuda_arch_list="9.0",
+    )
+    elapsed = time.perf_counter() - started
+
+    assert results == {0: 0.0, 1: 1.0, 2: 2.0}
+    assert {node.ip for node in run_state.nodes} == {"192.0.2.10", "192.0.2.11", "192.0.2.12"}
+    assert sorted(wait_calls) == ["192.0.2.10", "192.0.2.11", "192.0.2.12"]
+    assert sorted(deploy_calls) == ["model-0", "model-1", "model-2"]
+    assert elapsed < delay_s * 2.0
 
 
 def test_dry_run_mode(tmp_path: Path, monkeypatch) -> None:

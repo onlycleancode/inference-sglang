@@ -9,6 +9,8 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,10 +34,84 @@ from benchmark.instance import (  # noqa: E402
     wait_for_instance_ips,
 )
 from benchmark.models import validate_model_matrix  # noqa: E402
-from benchmark.run_state import RunState, new_run_id  # noqa: E402
+from benchmark.run_state import NodeState, RunState, new_run_id  # noqa: E402
 from benchmark.runner import prepare_nodes_for_dashboard  # noqa: E402
 
 WaitForControlFn = Callable[[str, Path], None]
+
+
+@dataclass(frozen=True)
+class NodeDeployResult:
+    node_index: int
+    model_load_s: float
+
+
+def _deploy_one_node(
+    *,
+    node: NodeState,
+    ip: str,
+    ssh_key: Path,
+    archive: Path,
+    api_key: str,
+    hf_token: str,
+    cuda_arch_list: str | None,
+) -> NodeDeployResult:
+    wait_for_ssh(ip, ssh_key)
+    model_load_s = remote_deploy_node(
+        ip=ip,
+        ssh_key=ssh_key,
+        archive=archive,
+        model_id=node.model_id,
+        api_key=api_key,
+        hf_token=hf_token,
+        cuda_arch_list=cuda_arch_list,
+    )
+    return NodeDeployResult(node_index=node.node_index, model_load_s=model_load_s)
+
+
+def _deploy_nodes_parallel(
+    *,
+    nodes: list[NodeState],
+    ips: dict[str, str],
+    ssh_key: Path,
+    archive: Path,
+    api_key: str,
+    hf_token: str,
+    cuda_arch_list: str | None,
+) -> dict[int, float]:
+    """Deploy all benchmark nodes concurrently and return model load seconds."""
+    deploy_targets: list[tuple[NodeState, str]] = []
+    for node in nodes:
+        if node.instance_id is None:
+            raise RuntimeError(f"Node {node.node_index} is missing an instance ID")
+        ip = ips[node.instance_id]
+        node.ip = ip
+        deploy_targets.append((node, ip))
+
+    if not deploy_targets:
+        return {}
+
+    print(f"Deploying {len(deploy_targets)} benchmark nodes in parallel...")
+    results: dict[int, float] = {}
+    with ThreadPoolExecutor(max_workers=len(deploy_targets)) as executor:
+        futures = {
+            executor.submit(
+                _deploy_one_node,
+                node=node,
+                ip=ip,
+                ssh_key=ssh_key,
+                archive=archive,
+                api_key=api_key,
+                hf_token=hf_token,
+                cuda_arch_list=cuda_arch_list,
+            ): node.node_index
+            for node, ip in deploy_targets
+        }
+        for future in as_completed(futures):
+            result = future.result()
+            results[result.node_index] = result.model_load_s
+            print(f"Node {result.node_index} deployed in {result.model_load_s:.1f}s")
+    return results
 
 
 def _find_ssh_key_name(token: str, public_key: str) -> str:
@@ -250,21 +326,23 @@ def run_benchmark(config: BenchmarkConfig, *, wait_for_control_fn: WaitForContro
                 status="deploying",
             )
 
-            for idx, node in enumerate(run_state.nodes):
+            deploy_results = _deploy_nodes_parallel(
+                nodes=run_state.nodes,
+                ips=ips,
+                ssh_key=ssh_key,
+                archive=archive,
+                api_key=api_key,
+                hf_token=hf_token,
+                cuda_arch_list=CUDA_ARCH_BY_INSTANCE_TYPE.get(capacity.instance_type),
+            )
+            run_state.save()
+
+            for node in run_state.nodes:
+                if node.ip is None:
+                    raise RuntimeError(f"Node {node.node_index} is missing an IP after deploy")
                 instance_id = node.instance_id
                 assert instance_id is not None
-                ip = ips[instance_id]
-                node.ip = ip
-                wait_for_ssh(ip, ssh_key)
-                model_load_s = remote_deploy_node(
-                    ip=ip,
-                    ssh_key=ssh_key,
-                    archive=archive,
-                    model_id=node.model_id,
-                    api_key=api_key,
-                    hf_token=hf_token,
-                    cuda_arch_list=CUDA_ARCH_BY_INSTANCE_TYPE.get(capacity.instance_type),
-                )
+                ip = node.ip
                 tunnel = start_ssh_tunnel(ip=ip, ssh_key=ssh_key, local_port=node.local_port)
                 cleanup.register_tunnel_pid(tunnel.pid)
                 node.tunnel_pid = tunnel.pid
@@ -275,7 +353,7 @@ def run_benchmark(config: BenchmarkConfig, *, wait_for_control_fn: WaitForContro
                     instance_id=instance_id,
                     ip=ip,
                     local_port=node.local_port,
-                    model_load_s=model_load_s,
+                    model_load_s=deploy_results[node.node_index],
                 )
 
             run_state.status = "warming"
